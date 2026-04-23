@@ -1,0 +1,37 @@
+# /etc/gpu-governor/config
+#
+# Copy to /etc/gpu-governor/config and edit. The service reads this file via
+# systemd EnvironmentFile. Restart the service to apply changes:
+#   sudo systemctl restart gpu-governor
+#
+# All values are integers.  Defaults apply when the variable is unset or empty.
+
+# Which GPU to manage (index as reported by `nvidia-smi -L`)
+GPU_GOVERNOR_INDEX=0
+
+# Polling cadence in seconds (>= 1).
+GPU_GOVERNOR_POLL_INTERVAL=5
+
+# ---- Utilization-based transitions ----
+# Averaged over UTIL_WINDOW samples to ignore short spikes.
+GPU_GOVERNOR_UTIL_HIGH=25
+GPU_GOVERNOR_UTIL_LOW=10
+GPU_GOVERNOR_UTIL_WINDOW=3
+
+# Min seconds to stay in a state before a util-driven transition.
+GPU_GOVERNOR_STATE_MIN_SECONDS=15
+
+# ---- Thermal protection (hysteresis) ----
+# Enter THERMAL when temp >= TEMP_ENTER. Leave only when temp < TEMP_EXIT.
+GPU_GOVERNOR_TEMP_ENTER=83
+GPU_GOVERNOR_TEMP_EXIT=78
+
+# ---- Power / clock targets ----
+# Power caps in watts.
+GPU_GOVERNOR_PL_COMPUTE=290
+GPU_GOVERNOR_PL_THERMAL=160
+
+# Locked GPU-core clock range in MHz (min, max). Tune CLOCK_MAX down for
+# stronger implicit undervolt. Typical efficient points for RTX 3090: 1650–1800.
+GPU_GOVERNOR_CLOCK_MIN=210
+GPU_GOVERNOR_CLOCK_MAX=1800
