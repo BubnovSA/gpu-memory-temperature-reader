@@ -1,69 +1,106 @@
-## GDDR6/GDDR6X GPU Memory Temperature Reader for Linux
+# NVIDIA GPU Toolkit for Linux
 
-Reads GDDR6/GDDR6X VRAM memory temperatures from multiple supported NVIDIA GPUs found in a host Linux system.
-These findings are based on reverse engineering of the NVIDIA GPU Linux driver.
+Two independent utilities for monitoring and managing NVIDIA GPUs on a Linux
+workstation or single-node AI machine:
 
+| Utility                                   | What it does                                                                                                                                  | Docs                                     |
+|-------------------------------------------|-----------------------------------------------------------------------------------------------------------------------------------------------|------------------------------------------|
+| [`gddr6`](app/README.md)                  | Real-time VRAM temperature readout + GPU/memory clocks, GPU/memory utilization, CSV logging, in-terminal sparkline graph, Telegram alerts.    | [app/README.md](app/README.md)           |
+| [`gpu-governor`](gpu-governor/README.md)  | `systemd`-managed daemon that caps GPU power and locks core-clock ceiling under load, backs off on overheat, restores defaults on shutdown.   | [gpu-governor/README.md](gpu-governor/README.md) |
 
-## Prerequisites
+They are complementary and independent. `gddr6` observes; `gpu-governor`
+controls. You can run both at the same time without conflict.
 
-- Kernel boot parameter: iomem=relaxed
+## Supported GPUs
 
-This step is optional. In some Linux distributions, the default kernel boot parameters are sufficient to run this program.
+### `gddr6` (VRAM readout)
 
+Temperature is read from a reverse-engineered MMIO offset, which is
+architecture-specific. Currently validated on:
+
+- **Ada Lovelace (RTX 40-series):** 4090, 4080 Super, 4080, 4070 Ti Super,
+  4070 Ti, 4070 Super, 4070
+- **Ampere GA102:** 3090 Ti, 3090, 3080 Ti, 3080, 3080 LHR, A4500, A5000, A10
+- **Ampere GA104:** 3070, 3070 LHR
+- **Ampere GA106:** A2000
+- **Datacenter Ada:** L4, L40S, A6000
+
+GPU/memory clocks and utilization are read via NVML and work on any
+NVML-supported card.
+
+### `gpu-governor` (power/clock management)
+
+Works with any NVIDIA GPU that NVML supports (Kepler+). Clock locking
+(`nvmlDeviceSetGpuLockedClocks`) requires Turing (RTX 20xx) or newer; older
+cards fall back to power-cap-only mode automatically.
+
+## Shared system prerequisites
+
+Both utilities need privileged access to the GPU. The following apply
+repo-wide:
+
+### Secure Boot off
+
+```sh
+sudo mokutil --disable-validation
+sudo mokutil --sb   # should print: SecureBoot disabled
 ```
+
+### `iomem=relaxed` kernel parameter (for `gddr6` only)
+
+Some distros require it to allow MMIO mapping from `/dev/mem`. On Debian /
+Ubuntu:
+
+```sh
 sudo vim /etc/default/grub
-GRUB_CMDLINE_LINUX_DEFAULT="quiet splash iomem=relaxed"
+# GRUB_CMDLINE_LINUX_DEFAULT="quiet splash iomem=relaxed"
 sudo update-grub
 sudo reboot
 ```
 
-- Disabling Secure Boot
-  
-This can be done in the UEFI/BIOS configuration or using [mokutil](https://wiki.debian.org/SecureBoot#Disabling.2Fre-enabling_Secure_Boot):
+Other distros may boot with sufficient defaults already — try `gddr6` first
+and only apply this if the mapping fails.
+
+## Per-utility prerequisites, install, usage, testing
+
+See the sub-README for each utility:
+
+- `gddr6`: build deps, CLI flags, CSV/JSON output, Telegram setup — [app/README.md](app/README.md)
+- `gpu-governor`: Python deps, systemd unit, config reference, state machine — [gpu-governor/README.md](gpu-governor/README.md)
+
+## Repository layout
 
 ```
-mokutil --disable-validation
+lib/                        # gddr6 static library (libpci + /dev/mem mmap)
+app/                        # gddr6 CLI (C)
+  src/                        app.c + sparkline/logger/nvml/telegram modules
+  README.md                   gddr6 usage + testing
+gpu-governor/               # gpu-governor daemon (Python)
+  gpu-governor.py             daemon entry point
+  gpu-governor.service        systemd unit
+  config.example              reference config
+  install.sh                  installer
+  README.md                   governor usage + testing
+CMakeLists.txt              # top-level build entry
+build_install.sh            # wrapper: cmake → build → optional install
 ```
 
-Check state with:
-```
-$ sudo mokutil --sb
-SecureBoot disabled
-```
+## Testing strategy
 
-## Dependencies
-- libpci-dev 
-```
-sudo apt install libpci-dev -y
-```
+There is no automated CI — both tools are tightly coupled to real hardware
+and privileged kernel/driver APIs. Testing is manual, performed on the
+target Linux machine, and scoped per utility.
 
-## Installation (cmake)
-```
-./build_install.sh
-sudo gddr6
-```
+Each sub-README has a `## Testing` section with numbered, copy-pasteable
+commands and expected output. The recommended workflow after changes:
 
-## Supported GPUs
-- RTX 4090 (AD102)
-- RTX 4080 Super (AD103)
-- RTX 4080 (AD103)
-- RTX 4070 Ti Super (AD103)
-- RTX 4070 Ti (AD104)
-- RTX 4070 Super (AD104)
-- RTX 4070 (AD104)
-- RTX 3090 Ti (GA102)
-- RTX 3090 (GA102)
-- RTX 3080 Ti (GA102)
-- RTX 3080 (GA102)
-- RTX 3080 LHR (GA102)
-- RTX 3070 (GA104)
-- RTX 3070 LHR (GA104)
-- RTX A2000 (GA106)
-- RTX A4500 (GA102)
-- RTX A5000 (GA102)
-- RTX A6000 (AD102)
-- L4 (AD104)
-- L40S (AD102)
-- A10 (GA102)
+1. Build / reinstall the affected utility (see its README's *Update* section).
+2. Run through the *Testing* section top to bottom.
+3. Only commit after every relevant check passes.
+
+## Credits
+
+VRAM temperature readout technique based on the original work at
+[olealgoritme/gddr6](https://github.com/olealgoritme/gddr6).
 
 ![](https://github.com/olealgoritme/gddr6/blob/master/gddr6_use.gif)

@@ -2,3 +2,6 @@ gddr6
 build/
 *.o
 *.a
+__pycache__/
+*.pyc
+*.log
