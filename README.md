@@ -39,8 +39,6 @@ sudo apt install libpci-dev -y
 
 ## Installation (cmake)
 ```
-git clone https://github.com/olealgoritme/gddr6
-cd gddr6
 ./build_install.sh
 sudo gddr6
 ```
