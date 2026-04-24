@@ -94,6 +94,8 @@ IDLE = "IDLE"
 COMPUTE = "COMPUTE"
 THERMAL = "THERMAL"
 
+HEARTBEAT_INTERVAL_S = 300.0  # one INFO liveness line per 5 minutes
+
 
 # ---------------- Governor ----------------
 
@@ -112,6 +114,7 @@ class Governor:
             maxlen=cfg.util_window)
         self._running = True
         self._restored = False
+        self._last_heartbeat = 0.0  # force first heartbeat on first tick
 
     # ---- NVML init ----
 
@@ -139,6 +142,30 @@ class Governor:
             logging.info("Persistence mode enabled")
         except pynvml.NVMLError as e:
             logging.warning("Persistence mode not set: %s (run as root?)", e)
+
+        self._startup_clean()
+
+    def _startup_clean(self) -> None:
+        """Drop any pre-existing manual caps/locks so we begin from a known baseline.
+
+        If the user previously ran `nvidia-smi -pl` or `-lgc`, those settings
+        persist in the driver. Without this, the GPU can stay pinned at a
+        non-default state until the governor's first IDLE transition.
+        """
+        logging.info("Startup cleanup: resetting any pre-existing caps/locks")
+        try:
+            pynvml.nvmlDeviceResetGpuLockedClocks(self.handle)
+        except pynvml.NVMLError:
+            pass  # not supported, or nothing to reset — both harmless
+        try:
+            pynvml.nvmlDeviceResetApplicationsClocks(self.handle)
+        except pynvml.NVMLError:
+            pass
+        if self.default_pl_mw is not None:
+            try:
+                pynvml.nvmlDeviceSetPowerManagementLimit(self.handle, self.default_pl_mw)
+            except pynvml.NVMLError as e:
+                logging.warning("Startup: could not reset power limit: %s", e)
 
     # ---- Action helpers ----
 
@@ -233,9 +260,14 @@ class Governor:
         self.util_window.append(util)
         avg = self._avg_util() or 0.0
 
-        logging.info(
+        logging.debug(
             "util=%3d%% avg=%5.1f%% temp=%3d°C state=%-7s age=%4.0fs",
             util, avg, temp, self.state, self._time_in_state())
+
+        now = time.monotonic()
+        if now - self._last_heartbeat >= HEARTBEAT_INTERVAL_S:
+            logging.info("alive: util=%d%% temp=%d°C state=%s", util, temp, self.state)
+            self._last_heartbeat = now
 
         # --- Priority 1: thermal entry (immediate, bypasses min-time) ---
         if temp >= self.cfg.temp_enter:
@@ -267,9 +299,12 @@ class Governor:
 
     # ---- Lifecycle ----
 
-    def run(self) -> None:
+    def install_signal_handlers(self) -> None:
+        """Install before init() so SIGTERM during init still triggers restore."""
         signal.signal(signal.SIGTERM, self._handle_signal)
         signal.signal(signal.SIGINT, self._handle_signal)
+
+    def run(self) -> None:
         while self._running:
             try:
                 self.tick()
@@ -310,6 +345,11 @@ def main() -> int:
         level=logging.INFO,
         format="%(asctime)s %(levelname)s %(message)s",
     )
+
+    if os.geteuid() != 0:
+        logging.error("gpu-governor must run as root (NVML power/clock ops require it)")
+        return 2
+
     try:
         cfg = Config.from_env()
         cfg.validate()
@@ -319,6 +359,7 @@ def main() -> int:
 
     logging.info("Config: %s", cfg)
     gov = Governor(cfg)
+    gov.install_signal_handlers()  # before init, so SIGTERM during init still restores
     try:
         gov.init()
         gov.run()

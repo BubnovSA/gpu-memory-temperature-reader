@@ -1,9 +1,7 @@
 // app.c
 #include "gddr6.h"
-#include "sparkline.h"
 #include "nvml_probe.h"
 #include "logger.h"
-#include "telegram.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -14,29 +12,51 @@
 #include <getopt.h>
 #include <stdint.h>
 
-#define SPARK_WIDTH_DEFAULT 40
+#define LINES_PER_GPU 3   /* header + Core + VRAM */
 
 struct app_config {
-    int          interval_s;
-    int          max_readings;
-    int          json_output;
-    int          enable_log;
-    int          truncate_log;
-    int          enable_graph;
-    int          spark_width;
-    const char  *log_path;
+    int         interval_s;
+    int         max_readings;
+    int         enable_log;
+    int         truncate_log;
+    const char *log_path;
+};
 
-    struct telegram_cfg tg;
-    unsigned int alert_temp_c;
-    int          alert_cooldown_s;
+struct temp_stats {
+    uint32_t min;
+    uint32_t max;
+    uint64_t sum;
+    uint64_t count;
 };
 
 struct per_device {
-    struct spark spark;
-    int          nvml_idx;
+    int                 nvml_idx;
     struct nvml_metrics metrics;
-    time_t       last_alert_ts;
+    unsigned int        core_threshold_c;   /* 0 if unknown */
+    struct temp_stats   core;
+    struct temp_stats   vram;
 };
+
+static void stats_init(struct temp_stats *s)
+{
+    s->min = UINT32_MAX;
+    s->max = 0;
+    s->sum = 0;
+    s->count = 0;
+}
+
+static void stats_update(struct temp_stats *s, uint32_t v)
+{
+    if (v < s->min) s->min = v;
+    if (v > s->max) s->max = v;
+    s->sum   += v;
+    s->count += 1;
+}
+
+static uint32_t stats_avg(const struct temp_stats *s)
+{
+    return s->count ? (uint32_t)(s->sum / s->count) : 0;
+}
 
 static void register_signal_handlers(void)
 {
@@ -44,117 +64,82 @@ static void register_signal_handlers(void)
     sa.sa_handler = gddr6_request_shutdown;
     sigemptyset(&sa.sa_mask);
     sa.sa_flags = 0;
-
     sigaction(SIGINT,  &sa, NULL);
     sigaction(SIGHUP,  &sa, NULL);
     sigaction(SIGTERM, &sa, NULL);
-
-    /* Auto-reap children fired by telegram_send(). */
-    signal(SIGCHLD, SIG_IGN);
 }
 
 static void print_usage(const char *prog)
 {
     fprintf(stderr,
         "Usage: %s [options]\n"
-        "  -i, --interval <s>         Polling interval in seconds (default: 1)\n"
-        "  -n, --count <n>            Exit after N readings (0 = infinite)\n"
-        "  -j, --json                 NDJSON output on stdout (disables TUI)\n"
-        "  -l, --log <path>           CSV log file path (default: ./gddr6.log)\n"
-        "      --no-log               Disable CSV logging\n"
-        "      --truncate             Clear log file on start (default: append with session marker)\n"
-        "      --no-graph             Disable in-terminal sparkline\n"
-        "      --history <n>          Sparkline width in columns (default: %d, max %d)\n"
-        "      --telegram-token <t>   Telegram bot token for alerts\n"
-        "      --telegram-chat <id>   Telegram chat id for alerts\n"
-        "      --alert-temp <c>       Alert when VRAM temp >= <c> °C (0 = disabled)\n"
-        "      --alert-cooldown <s>   Min seconds between alerts per GPU (default: 300)\n"
-        "  -h, --help                 Print this help and exit\n",
-        prog, SPARK_WIDTH_DEFAULT, SPARK_CAP);
+        "  -i, --interval <s>   Polling interval in seconds (default: 1)\n"
+        "  -n, --count <n>      Exit after N readings (0 = infinite)\n"
+        "  -l, --log <path>     CSV log file path (default: ./gddr6.log)\n"
+        "      --no-log         Disable CSV logging\n"
+        "      --truncate       Clear log file on start\n"
+        "  -h, --help           Print this help and exit\n",
+        prog);
 }
 
-static void print_json_line(const struct gddr6_ctx *ctx,
-                            const uint32_t *temps,
-                            const struct per_device *pd)
+static void print_final_summary(const struct gddr6_ctx *ctx,
+                                const struct per_device *pd)
 {
-    printf("{\"ts\":%ld,\"gpus\":[", (long)time(NULL));
+    printf("\n--- Temperature Summary (Min / Max / Avg °C) ---\n");
     for (int i = 0; i < ctx->num_devices; i++) {
         const struct device *d = &ctx->devices[i];
-        const struct nvml_metrics *m = &pd[i].metrics;
-        if (i > 0) printf(",");
-        printf("{\"name\":\"%s\",\"arch\":\"%s\",\"vram\":\"%s\",\"temp_c\":%u",
-               d->name, d->arch, d->vram, temps[i]);
-        if (m->valid) {
-            printf(",\"mem_clock_mhz\":%u,\"gpu_clock_mhz\":%u,"
-                   "\"util_gpu_pct\":%u,\"util_mem_pct\":%u",
-                   m->mem_clock_mhz, m->gpu_clock_mhz,
-                   m->util_gpu_pct, m->util_mem_pct);
-        }
-        printf("}");
-    }
-    printf("]}\n");
-    fflush(stdout);
-}
-
-static void print_statistics(const struct gddr6_ctx *ctx)
-{
-    printf("\n--- VRAM Temperature Statistics ---\n");
-    printf("%-28s %8s %8s %8s\n", "GPU", "Min °C", "Max °C", "Avg °C");
-    printf("%-28s %8s %8s %8s\n", "---", "------", "------", "------");
-    for (int i = 0; i < ctx->num_devices; i++) {
-        const struct device *d = &ctx->devices[i];
-        if (d->temp_count == 0) {
-            printf("%-28s %8s %8s %8s\n", d->name, "n/a", "n/a", "n/a");
-        } else {
-            uint32_t avg = (uint32_t)(d->temp_sum / d->temp_count);
-            printf("%-28s %8u %8u %8u\n", d->name, d->temp_min, d->temp_max, avg);
-        }
+        const struct per_device *p = &pd[i];
+        printf("GPU%d %s\n", i, d->name);
+        if (p->core.count)
+            printf("  Core   %3u / %3u / %3u\n",
+                   p->core.min, p->core.max, stats_avg(&p->core));
+        else
+            printf("  Core   —\n");
+        if (p->vram.count)
+            printf("  VRAM   %3u / %3u / %3u\n",
+                   p->vram.min, p->vram.max, stats_avg(&p->vram));
+        else
+            printf("  VRAM   —\n");
     }
 }
 
-static void print_statistics_json(const struct gddr6_ctx *ctx)
+static void render_header(int idx, const struct device *d,
+                          const struct nvml_metrics *m, int use_ansi)
 {
-    fprintf(stderr, "{\"event\":\"summary\",\"gpus\":[");
-    for (int i = 0; i < ctx->num_devices; i++) {
-        const struct device *d = &ctx->devices[i];
-        if (i > 0) fprintf(stderr, ",");
-        if (d->temp_count == 0) {
-            fprintf(stderr, "{\"name\":\"%s\",\"min_c\":null,\"max_c\":null,\"avg_c\":null}",
-                    d->name);
-        } else {
-            uint32_t avg = (uint32_t)(d->temp_sum / d->temp_count);
-            fprintf(stderr, "{\"name\":\"%s\",\"min_c\":%u,\"max_c\":%u,\"avg_c\":%u}",
-                    d->name, d->temp_min, d->temp_max, avg);
-        }
-    }
-    fprintf(stderr, "]}\n");
-}
-
-static void render_device_line(int idx, const struct device *d,
-                               uint32_t cur_temp,
-                               const struct nvml_metrics *m,
-                               int use_ansi)
-{
-    uint32_t mn  = d->temp_count ? d->temp_min : cur_temp;
-    uint32_t mx  = d->temp_count ? d->temp_max : cur_temp;
-    uint32_t avg = d->temp_count ? (uint32_t)(d->temp_sum / d->temp_count) : cur_temp;
-
-    printf("GPU%d %-20s T %3u°C  min %3u  max %3u  avg %3u",
-           idx, d->name, cur_temp, mn, mx, avg);
+    printf("GPU%d %-20s", idx, d->name);
     if (m->valid) {
-        printf("  Mclk %5uMHz  Gclk %4uMHz  util %3u%%/%3u%%",
-               m->mem_clock_mhz, m->gpu_clock_mhz,
+        printf("  Gclk %4uMHz  Mclk %5uMHz  util %3u%%/%3u%%",
+               m->gpu_clock_mhz, m->mem_clock_mhz,
                m->util_gpu_pct, m->util_mem_pct);
     }
     if (use_ansi) printf("\033[K");
     printf("\n");
 }
 
-static void render_spark_line(const struct spark *sp, int width, int use_ansi)
+static void render_core(const struct per_device *p, int use_ansi)
 {
-    char graph[SPARK_CAP * 3 + 1];
-    spark_render(sp, width, graph, sizeof graph);
-    printf("     %s", graph);
+    printf("  Core   ");
+    if (p->metrics.core_temp_valid) {
+        uint32_t cur = p->metrics.core_temp_c;
+        printf("cur %3u°C  min %3u  max %3u  avg %3u",
+               cur, p->core.min, p->core.max, stats_avg(&p->core));
+        if (p->core_threshold_c > 0) {
+            unsigned int pct = (cur * 100u) / p->core_threshold_c;
+            printf("   [ %3u%% of %u°C ]", pct, p->core_threshold_c);
+        }
+    } else {
+        printf("—   (needs NVML)");
+    }
+    if (use_ansi) printf("\033[K");
+    printf("\n");
+}
+
+static void render_vram(const struct per_device *p, uint32_t cur, int use_ansi)
+{
+    uint32_t mn  = p->vram.count ? p->vram.min : cur;
+    uint32_t mx  = p->vram.count ? p->vram.max : cur;
+    uint32_t avg = p->vram.count ? stats_avg(&p->vram) : cur;
+    printf("  VRAM   cur %3u°C  min %3u  max %3u  avg %3u", cur, mn, mx, avg);
     if (use_ansi) printf("\033[K");
     printf("\n");
 }
@@ -165,83 +150,61 @@ static void monitor_loop(const struct app_config *cfg,
                          struct logger *lg)
 {
     int readings = 0;
-    int use_ansi = !cfg->json_output && isatty(STDOUT_FILENO);
-    int lines_per_device = 1 + (cfg->enable_graph ? 1 : 0);
+    int use_ansi = isatty(STDOUT_FILENO);
     int rendered = 0;
 
     while (!gddr6_shutdown_requested) {
         if (cfg->max_readings > 0 && readings >= cfg->max_readings)
             break;
 
-        uint32_t temps[MAX_DEVICES];
-        time_t now = time(NULL);
+        uint32_t vram_temps[MAX_DEVICES];
+        time_t   now = time(NULL);
 
         for (int i = 0; i < ctx->num_devices; i++) {
             struct device *d = &ctx->devices[i];
             if (d->mapped_addr == NULL || d->mapped_addr == MAP_FAILED) {
-                temps[i] = 0;
+                vram_temps[i] = 0;
                 continue;
             }
             void *virt = (uint8_t *)d->mapped_addr + (d->phys_addr - d->base_offset);
             uint32_t raw  = *((uint32_t *)virt);
             uint32_t temp = (raw & 0x00000fff) / 0x20;
-            temps[i] = temp;
+            vram_temps[i] = temp;
+            stats_update(&pd[i].vram, temp);
 
-            if (temp < d->temp_min) d->temp_min = temp;
-            if (temp > d->temp_max) d->temp_max = temp;
-            d->temp_sum   += temp;
-            d->temp_count += 1;
-
-            spark_push(&pd[i].spark, temp);
             nvml_probe_read(pd[i].nvml_idx, &pd[i].metrics);
+            if (pd[i].metrics.core_temp_valid)
+                stats_update(&pd[i].core, pd[i].metrics.core_temp_c);
         }
 
-        if (cfg->json_output) {
-            print_json_line(ctx, temps, pd);
-        } else {
-            if (rendered && use_ansi) {
-                printf("\033[%dA", lines_per_device * ctx->num_devices);
-            }
-            for (int i = 0; i < ctx->num_devices; i++) {
-                render_device_line(i, &ctx->devices[i], temps[i],
-                                   &pd[i].metrics, use_ansi);
-                if (cfg->enable_graph)
-                    render_spark_line(&pd[i].spark, cfg->spark_width, use_ansi);
-            }
-            fflush(stdout);
-            rendered = 1;
+        if (rendered && use_ansi)
+            printf("\033[%dA", LINES_PER_GPU * ctx->num_devices);
+        for (int i = 0; i < ctx->num_devices; i++) {
+            render_header(i, &ctx->devices[i], &pd[i].metrics, use_ansi);
+            render_core(&pd[i], use_ansi);
+            render_vram(&pd[i], vram_temps[i], use_ansi);
         }
+        fflush(stdout);
+        rendered = 1;
 
         if (lg) {
             for (int i = 0; i < ctx->num_devices; i++) {
                 struct log_record rec = {
-                    .ts             = now,
-                    .gpu_idx        = i,
-                    .name           = ctx->devices[i].name,
-                    .temp_c         = temps[i],
-                    .has_nvml       = pd[i].metrics.valid,
-                    .mem_clock_mhz  = pd[i].metrics.mem_clock_mhz,
-                    .gpu_clock_mhz  = pd[i].metrics.gpu_clock_mhz,
-                    .util_gpu_pct   = pd[i].metrics.util_gpu_pct,
-                    .util_mem_pct   = pd[i].metrics.util_mem_pct,
+                    .ts                = now,
+                    .gpu_idx           = i,
+                    .name              = ctx->devices[i].name,
+                    .vram_temp_c       = vram_temps[i],
+                    .has_core_temp     = pd[i].metrics.core_temp_valid,
+                    .core_temp_c       = pd[i].metrics.core_temp_c,
+                    .has_threshold     = pd[i].core_threshold_c > 0,
+                    .core_threshold_c  = pd[i].core_threshold_c,
+                    .has_clocks_util   = pd[i].metrics.valid,
+                    .mem_clock_mhz     = pd[i].metrics.mem_clock_mhz,
+                    .gpu_clock_mhz     = pd[i].metrics.gpu_clock_mhz,
+                    .util_gpu_pct      = pd[i].metrics.util_gpu_pct,
+                    .util_mem_pct      = pd[i].metrics.util_mem_pct,
                 };
                 logger_write(lg, &rec);
-            }
-        }
-
-        if (cfg->alert_temp_c > 0 && telegram_enabled(&cfg->tg)) {
-            for (int i = 0; i < ctx->num_devices; i++) {
-                if (temps[i] < cfg->alert_temp_c) continue;
-                if (now - pd[i].last_alert_ts < cfg->alert_cooldown_s) continue;
-                char host[128] = {0};
-                gethostname(host, sizeof host - 1);
-                char msg[384];
-                snprintf(msg, sizeof msg,
-                         "[gddr6] %s: VRAM %u°C >= threshold %u°C (host: %s)",
-                         ctx->devices[i].name, temps[i],
-                         cfg->alert_temp_c, host);
-                telegram_send(&cfg->tg, msg);
-                pd[i].last_alert_ts = now;
             }
         }
 
@@ -253,49 +216,30 @@ static void monitor_loop(const struct app_config *cfg,
 enum {
     OPT_NO_LOG = 1000,
     OPT_TRUNCATE,
-    OPT_NO_GRAPH,
-    OPT_HISTORY,
-    OPT_TG_TOKEN,
-    OPT_TG_CHAT,
-    OPT_ALERT_TEMP,
-    OPT_ALERT_COOLDOWN,
 };
 
 int main(int argc, char **argv)
 {
     struct app_config cfg = {
-        .interval_s       = 1,
-        .max_readings     = 0,
-        .json_output      = 0,
-        .enable_log       = 1,
-        .truncate_log     = 0,
-        .enable_graph     = 1,
-        .spark_width      = SPARK_WIDTH_DEFAULT,
-        .log_path         = "./gddr6.log",
-        .tg               = { NULL, NULL },
-        .alert_temp_c     = 0,
-        .alert_cooldown_s = 300,
+        .interval_s   = 1,
+        .max_readings = 0,
+        .enable_log   = 1,
+        .truncate_log = 0,
+        .log_path     = "./gddr6.log",
     };
 
     static struct option long_opts[] = {
-        {"interval",        required_argument, 0, 'i'},
-        {"count",           required_argument, 0, 'n'},
-        {"json",            no_argument,       0, 'j'},
-        {"log",             required_argument, 0, 'l'},
-        {"no-log",          no_argument,       0, OPT_NO_LOG},
-        {"truncate",        no_argument,       0, OPT_TRUNCATE},
-        {"no-graph",        no_argument,       0, OPT_NO_GRAPH},
-        {"history",         required_argument, 0, OPT_HISTORY},
-        {"telegram-token",  required_argument, 0, OPT_TG_TOKEN},
-        {"telegram-chat",   required_argument, 0, OPT_TG_CHAT},
-        {"alert-temp",      required_argument, 0, OPT_ALERT_TEMP},
-        {"alert-cooldown",  required_argument, 0, OPT_ALERT_COOLDOWN},
-        {"help",            no_argument,       0, 'h'},
+        {"interval", required_argument, 0, 'i'},
+        {"count",    required_argument, 0, 'n'},
+        {"log",      required_argument, 0, 'l'},
+        {"no-log",   no_argument,       0, OPT_NO_LOG},
+        {"truncate", no_argument,       0, OPT_TRUNCATE},
+        {"help",     no_argument,       0, 'h'},
         {0, 0, 0, 0}
     };
 
     int opt;
-    while ((opt = getopt_long(argc, argv, "i:n:jl:h", long_opts, NULL)) != -1) {
+    while ((opt = getopt_long(argc, argv, "i:n:l:h", long_opts, NULL)) != -1) {
         char *end;
         long v;
         switch (opt) {
@@ -307,9 +251,6 @@ int main(int argc, char **argv)
             v = strtol(optarg, &end, 10);
             cfg.max_readings = (*end == '\0' && v >= 0) ? (int)v : 0;
             break;
-        case 'j':
-            cfg.json_output = 1;
-            break;
         case 'l':
             cfg.log_path = optarg;
             cfg.enable_log = 1;
@@ -319,29 +260,6 @@ int main(int argc, char **argv)
             break;
         case OPT_TRUNCATE:
             cfg.truncate_log = 1;
-            break;
-        case OPT_NO_GRAPH:
-            cfg.enable_graph = 0;
-            break;
-        case OPT_HISTORY:
-            v = strtol(optarg, &end, 10);
-            if (*end == '\0' && v >= 4 && v <= SPARK_CAP)
-                cfg.spark_width = (int)v;
-            break;
-        case OPT_TG_TOKEN:
-            cfg.tg.token = optarg;
-            break;
-        case OPT_TG_CHAT:
-            cfg.tg.chat_id = optarg;
-            break;
-        case OPT_ALERT_TEMP:
-            v = strtol(optarg, &end, 10);
-            if (*end == '\0' && v >= 0 && v <= 150)
-                cfg.alert_temp_c = (unsigned int)v;
-            break;
-        case OPT_ALERT_COOLDOWN:
-            v = strtol(optarg, &end, 10);
-            if (*end == '\0' && v >= 0) cfg.alert_cooldown_s = (int)v;
             break;
         case 'h':
             print_usage(argv[0]);
@@ -371,31 +289,36 @@ int main(int argc, char **argv)
         return 1;
     }
     for (int i = 0; i < ctx->num_devices; i++) {
-        spark_init(&pd[i].spark);
         pd[i].nvml_idx = -1;
+        stats_init(&pd[i].core);
+        stats_init(&pd[i].vram);
     }
 
     int nvml_ok = (nvml_probe_init() == 0);
     if (nvml_ok) {
         int attached = 0;
         for (int i = 0; i < ctx->num_devices; i++) {
-            /* PCI domain not tracked by libgddr6 — use 0 (near-universal). */
             pd[i].nvml_idx = nvml_probe_attach(
                 0, ctx->devices[i].bus, ctx->devices[i].dev, ctx->devices[i].func);
-            if (pd[i].nvml_idx >= 0) attached++;
+            if (pd[i].nvml_idx >= 0) {
+                attached++;
+                unsigned int thr;
+                if (nvml_probe_slowdown_threshold(pd[i].nvml_idx, &thr) == 0)
+                    pd[i].core_threshold_c = thr;
+            }
         }
         if (attached == 0) {
             fprintf(stderr, "NVML loaded but no GPU handles matched by PCI id.\n");
         } else {
-            printf("NVML: clocks/util enabled for %d of %d GPU(s)\n",
+            printf("NVML: clocks/util/core-temp enabled for %d of %d GPU(s)\n",
                    attached, ctx->num_devices);
         }
     } else {
-        fprintf(stderr, "NVML unavailable — clocks/utilization disabled.\n");
+        fprintf(stderr, "NVML unavailable — clocks/util/core-temp disabled.\n");
     }
 
     struct logger *lg = NULL;
-    if (cfg.enable_log && !cfg.json_output) {
+    if (cfg.enable_log) {
         lg = logger_open(cfg.log_path, cfg.truncate_log);
         if (!lg) {
             fprintf(stderr, "Warning: could not open log '%s' — logging disabled.\n",
@@ -408,10 +331,7 @@ int main(int argc, char **argv)
 
     monitor_loop(&cfg, ctx, pd, lg);
 
-    if (cfg.json_output)
-        print_statistics_json(ctx);
-    else
-        print_statistics(ctx);
+    print_final_summary(ctx, pd);
 
     logger_close(lg);
     if (nvml_ok) nvml_probe_shutdown();

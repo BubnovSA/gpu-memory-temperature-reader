@@ -42,7 +42,8 @@ struct logger *logger_open(const char *path, int truncate)
     lg->f = f;
 
     if (fresh) {
-        fprintf(f, "# timestamp,gpu_idx,name,temp_c,mem_clock_mhz,gpu_clock_mhz,util_gpu_pct,util_mem_pct\n");
+        fprintf(f, "# timestamp,gpu_idx,name,vram_temp_c,core_temp_c,core_threshold_c,"
+                   "mem_clock_mhz,gpu_clock_mhz,util_gpu_pct,util_mem_pct\n");
     }
     write_ts(f, "start");
     fflush(f);
@@ -52,14 +53,19 @@ struct logger *logger_open(const char *path, int truncate)
 void logger_write(struct logger *lg, const struct log_record *r)
 {
     if (!lg || !lg->f) return;
-    if (r->has_nvml) {
-        fprintf(lg->f, "%ld,%d,%s,%u,%u,%u,%u,%u\n",
-                (long)r->ts, r->gpu_idx, r->name, r->temp_c,
+
+    fprintf(lg->f, "%ld,%d,%s,%u,",
+            (long)r->ts, r->gpu_idx, r->name, r->vram_temp_c);
+
+    if (r->has_core_temp)  fprintf(lg->f, "%u,", r->core_temp_c); else fputc(',', lg->f);
+    if (r->has_threshold)  fprintf(lg->f, "%u,", r->core_threshold_c); else fputc(',', lg->f);
+
+    if (r->has_clocks_util) {
+        fprintf(lg->f, "%u,%u,%u,%u\n",
                 r->mem_clock_mhz, r->gpu_clock_mhz,
                 r->util_gpu_pct, r->util_mem_pct);
     } else {
-        fprintf(lg->f, "%ld,%d,%s,%u,,,,\n",
-                (long)r->ts, r->gpu_idx, r->name, r->temp_c);
+        fprintf(lg->f, ",,,\n");
     }
     fflush(lg->f);
 }

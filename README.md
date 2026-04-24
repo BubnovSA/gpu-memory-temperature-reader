@@ -5,7 +5,7 @@ workstation or single-node AI machine:
 
 | Utility                                   | What it does                                                                                                                                  | Docs                                     |
 |-------------------------------------------|-----------------------------------------------------------------------------------------------------------------------------------------------|------------------------------------------|
-| [`gddr6`](app/README.md)                  | Real-time VRAM temperature readout + GPU/memory clocks, GPU/memory utilization, CSV logging, in-terminal sparkline graph, Telegram alerts.    | [app/README.md](app/README.md)           |
+| [`gddr6`](app/README.md)                  | Real-time VRAM temperature readout + GPU/memory clocks, GPU/memory utilization, CSV logging.                                                  | [app/README.md](app/README.md)           |
 | [`gpu-governor`](gpu-governor/README.md)  | `systemd`-managed daemon that caps GPU power and locks core-clock ceiling under load, backs off on overheat, restores defaults on shutdown.   | [gpu-governor/README.md](gpu-governor/README.md) |
 
 They are complementary and independent. `gddr6` observes; `gpu-governor`

@@ -2,10 +2,8 @@
 
 Real-time CLI monitor for NVIDIA GPUs. Reads **GDDR6/GDDR6X VRAM temperature**
 directly from the GPU's MMIO register (reverse-engineered from the Linux
-driver), and optionally decorates it with **core clock, memory clock, GPU
-utilization, memory utilization** via NVML. Writes samples to a **CSV log
-file**, draws a **sparkline graph** in the terminal, and can send **Telegram
-alerts** on thermal thresholds.
+driver), optionally decorates the output with **GPU/memory clocks and
+utilization** via NVML, and writes samples to a **CSV log file**.
 
 See the [root README](../README.md) for the list of supported GPUs and
 shared kernel/Secure-Boot prerequisites.
@@ -15,7 +13,6 @@ shared kernel/Secure-Boot prerequisites.
 - `libpci-dev` (for PCI enumeration)
 - `cmake` + `build-essential`
 - NVIDIA proprietary driver (NVML is bundled with it; optional but recommended)
-- `curl` on `PATH` (optional; only for Telegram alerts)
 
 ```sh
 sudo apt install libpci-dev cmake build-essential -y
@@ -47,8 +44,7 @@ rm -rf build                   # clean previous artifacts
 ./build_install.sh             # answer "y" to overwrite the /usr/local installs
 ```
 
-There is no caching/state outside `build/` — a clean rebuild is always safe
-and takes a few seconds.
+No caching outside `build/` — a fresh rebuild is always safe.
 
 ## Uninstall
 
@@ -62,47 +58,46 @@ rm -rf build                   # optional: also drop local build artifacts
 
 ```
 Usage: gddr6 [options]
-  -i, --interval <s>         Polling interval in seconds (default: 1)
-  -n, --count <n>            Exit after N readings (0 = infinite)
-  -j, --json                 NDJSON output on stdout (disables TUI)
-  -l, --log <path>           CSV log file path (default: ./gddr6.log)
-      --no-log               Disable CSV logging
-      --truncate             Clear log file on start
-      --no-graph             Disable in-terminal sparkline
-      --history <n>          Sparkline width in columns (default: 40, max: 120)
-      --telegram-token <t>   Telegram bot token for alerts
-      --telegram-chat <id>   Telegram chat id for alerts
-      --alert-temp <c>       Alert when VRAM temp >= <c> °C (0 = disabled)
-      --alert-cooldown <s>   Min seconds between alerts per GPU (default: 300)
-  -h, --help                 Print this help and exit
+  -i, --interval <s>   Polling interval in seconds (default: 1)
+  -n, --count <n>      Exit after N readings (0 = infinite)
+  -l, --log <path>     CSV log file path (default: ./gddr6.log)
+      --no-log         Disable CSV logging
+      --truncate       Clear log file on start
+  -h, --help           Print this help and exit
 ```
 
 ### Terminal output
 
-Two-line compact block per GPU, redrawn in place every interval:
+Three lines per GPU, redrawn in place every interval:
 
 ```
-GPU0 RTX 4090           T  65°C  min  52  max  71  avg  63  Mclk 10502MHz  Gclk 2745MHz  util  85%/ 72%
-     ▁▂▃▄▅▆▇█▇▆▅▃▂▁
+GPU0 RTX 3090              Gclk 1770MHz  Mclk  9751MHz  util  92%/ 68%
+  Core   cur  65°C  min  52  max  71  avg  63   [  70% of 92°C ]
+  VRAM   cur  72°C  min  58  max  78  avg  65
 ```
 
-- `min / max / avg` are cumulative since the process started.
-- `Mclk / Gclk / util X%/Y%` appear only when NVML is loaded and the GPU
-  handle matched (gated message is printed on startup).
-- The sparkline shows the last 40 samples by default (tune with
-  `--history`), auto-scaled between that window's min and max.
+- First line: GPU name + (if NVML loaded) core/memory clock and GPU/memory
+  utilization.
+- **Core** row: current temperature from NVML + cumulative min/max/avg
+  since the process started. If NVML exposes the slowdown threshold, the
+  bracket shows `current / threshold * 100%` — i.e. how close you are to
+  the point where the driver starts throttling.
+- **VRAM** row: cumulative min/max/avg from the MMIO-read VRAM sensor.
+- If NVML is unavailable the Core row shows `— (needs NVML)` and the first
+  line omits the clock/util suffix; VRAM still works on its own.
 
 When stdout is not a TTY (piped, redirected, `tee`), ANSI cursor controls
 are suppressed — output scrolls line by line.
 
 ### CSV log format
 
-Default path: `./gddr6.log` (relative to the working directory). Columns:
+Default path: `./gddr6.log` (relative to the working directory). Columns
+(10):
 
 ```
-# timestamp,gpu_idx,name,temp_c,mem_clock_mhz,gpu_clock_mhz,util_gpu_pct,util_mem_pct
+# timestamp,gpu_idx,name,vram_temp_c,core_temp_c,core_threshold_c,mem_clock_mhz,gpu_clock_mhz,util_gpu_pct,util_mem_pct
 # === session start 2026-04-24T14:30:00+0300 ===
-1713962200,0,RTX 4090,65,10502,2745,85,72
+1713962200,0,RTX 3090,72,65,92,9751,1770,92,68
 ...
 # === session end 2026-04-24T14:31:02+0300 ===
 ```
@@ -112,120 +107,70 @@ Default path: `./gddr6.log` (relative to the working directory). Columns:
   pass `--truncate` to clear first.
 - Lines starting with `#` are comments — most CSV parsers either skip them
   or are configurable to.
-- Rows have a stable 8-column shape even when NVML metrics are unavailable
-  (the NVML columns are left blank).
-
-### JSON mode
-
-`-j` emits NDJSON on stdout (one object per sample) and a summary object on
-stderr on exit. Intended for piping:
-
-```sh
-sudo gddr6 -j | jq '.gpus[] | select(.temp_c > 70)'
-```
-
-### Telegram alerts
-
-Create a bot via `@BotFather`, send it any message, fetch your chat id:
-
-```sh
-curl -s "https://api.telegram.org/bot<TOKEN>/getUpdates" \
-  | jq '.result[].message.chat.id'
-```
-
-Run with alerts armed:
-
-```sh
-sudo gddr6 \
-  --telegram-token 123456:ABC-DEF... \
-  --telegram-chat 987654321 \
-  --alert-temp 90 \
-  --alert-cooldown 300
-```
-
-Alerts are dispatched via a forked `curl` process; network failures do not
-block the main loop. `--alert-cooldown` debounces per-GPU (default 300 s).
+- Rows always have 10 columns. Fields without a value are left blank
+  (e.g. `...,72,,,,,,` when NVML is unavailable).
 
 ## Testing
 
-Manual checklist. Run top to bottom on the target machine after first
-install or any non-trivial change.
+Manual checklist — walk through top to bottom on the target machine.
 
-### 1. Baseline
+### Smoke test
 
 ```sh
-sudo gddr6 -h                                    # [1] prints usage with all flags
-sudo gddr6 -n 3                                  # [2] 3 samples → summary table → exit 0
-sudo gddr6 -j -n 3 | jq .                        # [3] 3 NDJSON lines, all valid
-sudo gddr6 -j -n 3 2>&1 >/dev/null | jq .        # [4] summary object on stderr
+sudo ./build/bin/gddr6 -n 3
 ```
+Expected: three 3-line blocks per GPU (header + Core + VRAM), then a
+`Core / VRAM` summary table, exit 0. Startup should print
+`NVML: clocks/util/core-temp enabled for N of N GPU(s)` — if it's
+`NVML unavailable`, the tool still works but the Core row shows
+`— (needs NVML)` and the first line omits clock/util info.
 
-### 2. Terminal display
+### Interactive display
 
 ```sh
-sudo gddr6                                       # [5] live 2-line layout; Ctrl+C → summary
-sudo gddr6 --no-graph                            # [6] single-line layout, no sparkline
-sudo gddr6 --history 20                          # [7] narrower graph
-sudo gddr6 | cat                                 # [8] no ANSI sequences when piped
+sudo ./build/bin/gddr6
 ```
+Expected: each GPU occupies exactly 3 rewriting-in-place lines. Ctrl+C
+triggers the final summary and clean exit. The `[ NN% of M°C ]` bracket
+on the Core row reflects current core temp vs. the driver's slowdown
+threshold (typically 92 °C on GA102 like the RTX 3090).
 
-### 3. NVML (clocks + utilization)
+### Logging
 
 ```sh
-sudo gddr6 -n 3                                  # [9] startup prints "NVML: clocks/util enabled for N of N"
-# In another terminal run a GPU load:
-python3 -c 'import torch; a=torch.randn(10000,10000,device="cuda"); (a@a).sum().item()'
-# Back to the gddr6 window — Gclk and util should change.  [10]
+sudo ./build/bin/gddr6 -n 3
+cat ./gddr6.log
 ```
-
-Fallback path: if startup prints `NVML unavailable`, the tool still works
-but without the clock/util columns. This is expected on systems without
-NVML.
-
-### 4. Logging
+Expected: CSV header, `# === session start ... ===`, three rows per GPU,
+`# === session end ... ===`.
 
 ```sh
-sudo gddr6 -n 3 && cat ./gddr6.log                       # [11] header + session + 3 rows + session end
-sudo gddr6 -n 3 && cat ./gddr6.log                       # [12] second session appended, no duplicate header
-sudo gddr6 -n 2 --truncate && wc -l ./gddr6.log          # [13] file reset, small line count
-sudo gddr6 --no-log -n 2 && ls -la ./gddr6.log           # [14] log untouched
-sudo gddr6 -l /tmp/custom.log -n 2 && cat /tmp/custom.log # [15] custom path honored
+sudo ./build/bin/gddr6 -n 3 --truncate && wc -l ./gddr6.log
+```
+Expected: file is reset, only the fresh session remains.
 
-# Live tail (should show rows appearing immediately, thanks to per-write fflush):
-sudo gddr6 -l /tmp/x.log &                                # [16]
+```sh
+sudo ./build/bin/gddr6 --no-log -n 2 && ls -la ./gddr6.log
+```
+Expected: log file is not modified.
+
+### Live tail
+
+```sh
+sudo ./build/bin/gddr6 -l /tmp/x.log &
 tail -f /tmp/x.log
-# ...Ctrl+C both
+# Ctrl+C on tail, then `sudo kill %1` to stop gddr6
 ```
-
-### 5. Telegram
-
-Preconditions: a bot token and chat id.
-
-```sh
-# Force-trigger by setting threshold below current temp:
-sudo gddr6 \
-  --telegram-token <TOKEN> --telegram-chat <CHAT_ID> \
-  --alert-temp 40 --alert-cooldown 10
-# [17] First message in chat within 1 polling interval
-# [18] Re-fires every ~10 s while condition holds
-# [19] Ctrl+C to stop
-```
-
-### 6. Shutdown
-
-```sh
-sudo gddr6                                       # [20] Ctrl+C → summary + "session end" in log
-sudo gddr6 & sleep 3; sudo kill -TERM $!         # [21] same graceful behavior on SIGTERM
-sudo gddr6 & sleep 3; sudo kill -9 $!            # [22] summary skipped (expected)
-```
+Expected: new CSV lines appear in `tail -f` immediately (each write is
+flushed).
 
 ## Known limitations
 
 - **VRAM temperature** is supported only for the GPUs listed in the
-  [root README](../README.md#gddr6-vram-readout). For unlisted cards the
-  utility simply exits with *No compatible GPU found*.
+  [root README](../README.md#gddr6-vram-readout). Unlisted cards will cause
+  *No compatible GPU found*.
 - **NVML handle lookup** uses PCI domain 0. On multi-socket servers with
-  non-zero PCI domains, temperature still works but clocks/util columns may
-  not populate.
-- **CSV log has no rotation.** Long unattended runs grow the file without
-  bound. Rotate externally if needed (`logrotate`, `savelog`).
+  non-zero PCI domains the temperature still works, but clock/util columns
+  may not populate.
+- **CSV log has no rotation** — long unattended runs grow the file
+  unbounded. Rotate externally if needed (`logrotate`, `savelog`).

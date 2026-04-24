@@ -10,8 +10,16 @@ struct log_record {
     time_t       ts;
     int          gpu_idx;
     const char  *name;
-    uint32_t     temp_c;
-    int          has_nvml;
+
+    uint32_t     vram_temp_c;
+
+    int          has_core_temp;
+    unsigned int core_temp_c;
+
+    int          has_threshold;
+    unsigned int core_threshold_c;
+
+    int          has_clocks_util;
     unsigned int mem_clock_mhz;
     unsigned int gpu_clock_mhz;
     unsigned int util_gpu_pct;

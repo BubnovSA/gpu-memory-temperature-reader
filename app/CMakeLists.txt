@@ -4,10 +4,8 @@ cmake_minimum_required(VERSION 3.10)
 project(gddr6_app)
 set(APP_SOURCES
     src/app.c
-    src/sparkline.c
     src/nvml_probe.c
     src/logger.c
-    src/telegram.c
 )
 add_executable(gddr6 ${APP_SOURCES})
 
