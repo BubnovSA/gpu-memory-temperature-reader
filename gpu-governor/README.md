@@ -67,16 +67,50 @@ For a true V/F curve edit on Linux, see
 ## Requirements
 
 - Linux with NVIDIA proprietary driver (535+ recommended)
-- `python3` (3.8+) and `pip`
-- Python package: `nvidia-ml-py` (provides `pynvml`)
+- `python3` (3.8+)
+- Python package: `pynvml` (NVIDIA's `nvidia-ml-py` binding)
 - `systemd`
 - Root (the service runs as root; privileged NVML calls require it)
 - NVIDIA GPU. Turing (RTX 20xx) or newer for clock locking; older cards
   fall back to power-cap-only mode automatically.
 
+### Installing the Python NVML binding
+
+Pick the first option that works on your distro:
+
+**1. Distro package (preferred):**
+
 ```sh
-sudo apt install python3-pip
-pip3 install nvidia-ml-py
+sudo apt install -y python3-pynvml
+```
+
+Verify it's importable:
+
+```sh
+python3 -c "import pynvml; print('OK')"
+```
+
+If you get `OK` — done, skip to the Install section.
+
+**2. Fallback via pip with override (Ubuntu 24.04+, Debian 12+):**
+
+Modern Debian/Ubuntu block system-wide pip by PEP 668. If option 1 failed
+(`No module named 'pynvml'` despite successful apt install, or the apt
+package doesn't exist in your repo), install via pip with explicit
+override:
+
+```sh
+sudo apt install -y python3-pip
+sudo pip3 install nvidia-ml-py --break-system-packages
+```
+
+`--break-system-packages` is safe for this one package — it has no heavy
+dependencies and won't conflict with apt-managed Python libraries.
+
+Re-verify:
+
+```sh
+python3 -c "import pynvml; print('OK')"
 ```
 
 ## Install
@@ -349,6 +383,13 @@ Power capping still applies. This is expected, not a failure.
 - **Service won't start after edit** — run `systemctl status gpu-governor`
   and `journalctl -u gpu-governor | tail`; you'll see either a config
   validation error (exit 2) or a Python traceback.
+- **State flapping IDLE ↔ COMPUTE during short workloads** — expected.
+  Scripts that make brief GPU bursts separated by sync points (e.g.
+  `for _ in range(N): tensor.sum().item()`) cause utilization to oscillate
+  around the threshold. Sustained training / inference (60+ seconds of
+  steady GPU load) stays in COMPUTE without flapping. If it bothers you,
+  raise `GPU_GOVERNOR_UTIL_WINDOW` to `6` and/or
+  `GPU_GOVERNOR_STATE_MIN_SECONDS` to `30`.
 
 ## Scope and non-goals
 
