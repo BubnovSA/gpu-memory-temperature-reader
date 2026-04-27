@@ -72,17 +72,26 @@ Three lines per GPU, redrawn in place every interval:
 
 ```
 GPU0 RTX 3090              Gclk 1770MHz  Mclk  9751MHz  util  92%/ 68%
-  Core   cur  65°C  min  52  max  71  avg  63   [  70% of 92°C ]
-  VRAM   cur  72°C  min  58  max  78  avg  65
+  Core   cur  65°C  min  52  max  71   [  70% of 92°C ]
+  VRAM   cur  72°C  min  58  max  78
 ```
 
 - First line: GPU name + (if NVML loaded) core/memory clock and GPU/memory
   utilization.
-- **Core** row: current temperature from NVML + cumulative min/max/avg
+- **Core** row: current temperature from NVML + cumulative min/max
   since the process started. If NVML exposes the slowdown threshold, the
   bracket shows `current / threshold * 100%` — i.e. how close you are to
   the point where the driver starts throttling.
-- **VRAM** row: cumulative min/max/avg from the MMIO-read VRAM sensor.
+- **VRAM** row: cumulative min/max from the MMIO-read VRAM sensor.
+
+When stdout is a TTY, values are colored:
+- `min` — always green (low watermark)
+- `max` — always red (high watermark)
+- `cur` — gradient by temperature:
+  - **Core**: ≤65 °C green, 66–72 °C yellow, ≥73 °C red
+  - **VRAM**: ≤82 °C green, 83–86 °C yellow, ≥87 °C red
+
+Colors are suppressed when stdout is piped or redirected.
 - If NVML is unavailable the Core row shows `— (needs NVML)` and the first
   line omits the clock/util suffix; VRAM still works on its own.
 
