@@ -53,9 +53,7 @@ static int stats_has_data(const struct temp_stats *s)
 }
 
 /* ANSI color helpers — return escape code or empty string. */
-static const char *ansi_reset(int use_ansi) { return use_ansi ? "\033[0m"  : ""; }
-static const char *ansi_green(int use_ansi) { return use_ansi ? "\033[32m" : ""; }
-static const char *ansi_red  (int use_ansi) { return use_ansi ? "\033[31m" : ""; }
+static const char *ansi_reset(int use_ansi) { return use_ansi ? "\033[0m" : ""; }
 
 static const char *core_cur_color(uint32_t t, int use_ansi)
 {
@@ -100,22 +98,17 @@ static void print_usage(const char *prog)
 static void print_final_summary(const struct gddr6_ctx *ctx,
                                 const struct per_device *pd)
 {
-    int use_ansi = isatty(STDOUT_FILENO);
     printf("\n--- Temperature Summary (Min / Max °C) ---\n");
     for (int i = 0; i < ctx->num_devices; i++) {
         const struct device *d = &ctx->devices[i];
         const struct per_device *p = &pd[i];
         printf("GPU%d %s\n", i, d->name);
         if (stats_has_data(&p->core))
-            printf("  Core   %s%3u%s / %s%3u%s\n",
-                   ansi_green(use_ansi), p->core.min, ansi_reset(use_ansi),
-                   ansi_red(use_ansi),   p->core.max, ansi_reset(use_ansi));
+            printf("  Core   %3u / %3u\n", p->core.min, p->core.max);
         else
             printf("  Core   —\n");
         if (stats_has_data(&p->vram))
-            printf("  VRAM   %s%3u%s / %s%3u%s\n",
-                   ansi_green(use_ansi), p->vram.min, ansi_reset(use_ansi),
-                   ansi_red(use_ansi),   p->vram.max, ansi_reset(use_ansi));
+            printf("  VRAM   %3u / %3u\n", p->vram.min, p->vram.max);
         else
             printf("  VRAM   —\n");
     }
@@ -141,10 +134,9 @@ static void render_core(const struct per_device *p, int use_ansi)
         uint32_t cur = p->metrics.core_temp_c;
         uint32_t mn  = stats_has_data(&p->core) ? p->core.min : cur;
         uint32_t mx  = stats_has_data(&p->core) ? p->core.max : cur;
-        printf("cur %s%3u°C%s  min %s%3u%s  max %s%3u%s",
+        printf("cur %s%3u°C%s  min %3u  max %3u",
                core_cur_color(cur, use_ansi), cur, ansi_reset(use_ansi),
-               ansi_green(use_ansi),          mn,  ansi_reset(use_ansi),
-               ansi_red(use_ansi),            mx,  ansi_reset(use_ansi));
+               mn, mx);
         if (p->core_threshold_c > 0) {
             unsigned int pct = (cur * 100u) / p->core_threshold_c;
             printf("   [ %3u%% of %u°C ]", pct, p->core_threshold_c);
@@ -160,10 +152,9 @@ static void render_vram(const struct per_device *p, uint32_t cur, int use_ansi)
 {
     uint32_t mn = stats_has_data(&p->vram) ? p->vram.min : cur;
     uint32_t mx = stats_has_data(&p->vram) ? p->vram.max : cur;
-    printf("  VRAM   cur %s%3u°C%s  min %s%3u%s  max %s%3u%s",
+    printf("  VRAM   cur %s%3u°C%s  min %3u  max %3u",
            vram_cur_color(cur, use_ansi), cur, ansi_reset(use_ansi),
-           ansi_green(use_ansi),          mn,  ansi_reset(use_ansi),
-           ansi_red(use_ansi),            mx,  ansi_reset(use_ansi));
+           mn, mx);
     if (use_ansi) printf("\033[K");
     printf("\n");
 }

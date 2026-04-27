@@ -84,12 +84,10 @@ GPU0 RTX 3090              Gclk 1770MHz  Mclk  9751MHz  util  92%/ 68%
   the point where the driver starts throttling.
 - **VRAM** row: cumulative min/max from the MMIO-read VRAM sensor.
 
-When stdout is a TTY, values are colored:
-- `min` — always green (low watermark)
-- `max` — always red (high watermark)
-- `cur` — gradient by temperature:
-  - **Core**: ≤65 °C green, 66–72 °C yellow, ≥73 °C red
-  - **VRAM**: ≤82 °C green, 83–86 °C yellow, ≥87 °C red
+When stdout is a TTY, the **`cur` value** is colored by temperature
+(everything else stays default terminal color):
+- **Core**: ≤65 °C green, 66–72 °C yellow, ≥73 °C red
+- **VRAM**: ≤82 °C green, 83–86 °C yellow, ≥87 °C red
 
 Colors are suppressed when stdout is piped or redirected.
 - If NVML is unavailable the Core row shows `— (needs NVML)` and the first
