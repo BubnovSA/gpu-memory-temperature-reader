@@ -23,15 +23,15 @@ GPU_GOVERNOR_STATE_MIN_SECONDS=15
 
 # ---- Thermal protection (hysteresis) ----
 # Enter THERMAL when temp >= TEMP_ENTER. Leave only when temp < TEMP_EXIT.
-GPU_GOVERNOR_TEMP_ENTER=83
-GPU_GOVERNOR_TEMP_EXIT=78
+GPU_GOVERNOR_TEMP_ENTER=78
+GPU_GOVERNOR_TEMP_EXIT=72
 
 # ---- Power / clock targets ----
 # Power caps in watts.
-GPU_GOVERNOR_PL_COMPUTE=290
+GPU_GOVERNOR_PL_COMPUTE=260
 GPU_GOVERNOR_PL_THERMAL=160
 
 # Locked GPU-core clock range in MHz (min, max). Tune CLOCK_MAX down for
 # stronger implicit undervolt. Typical efficient points for RTX 3090: 1650–1800.
 GPU_GOVERNOR_CLOCK_MIN=210
-GPU_GOVERNOR_CLOCK_MAX=1800
+GPU_GOVERNOR_CLOCK_MAX=1650
