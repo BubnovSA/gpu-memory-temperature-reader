@@ -16,10 +16,11 @@
 #
 # Usage:
 #   sudo ./case-fan.sh                       → status of all pwm/fan channels
-#   sudo ./case-fan.sh find                  → ramp each pwm to 90% one-by-one (4s)
+#   sudo ./case-fan.sh find [seconds]        → ramp each pwm to 90% one-by-one (default 4s)
 #   sudo ./case-fan.sh set <N> <PCT>         → set pwmN to PCT%
-#   sudo ./case-fan.sh auto <N>              → return pwmN to auto
-#   sudo ./case-fan.sh auto-all              → return all pwm channels to auto
+#   sudo ./case-fan.sh auto <N>              → return pwmN to auto (mode 2)
+#   sudo ./case-fan.sh auto-all              → drop all to 30% + mode=auto (recommended quiet)
+#   sudo ./case-fan.sh panic                 → reload it87 module (nuclear: 100% guaranteed reset)
 #   sudo ./case-fan.sh watch                 → live status, refresh every 1s
 #
 set -eu
@@ -76,32 +77,64 @@ auto)
     show_status
     ;;
 auto-all)
-    for N in $(pwm_list); do echo 2 > "$CHIP/pwm${N}_enable"; done
-    echo "all pwm channels -> auto"
+    # Drop pwm raw to a safe low first, then switch to mode 2 (auto).
+    # On IT8688E mode 2 doesn't always override the raw register immediately,
+    # so dropping raw to 30% first guarantees fans actually slow down.
+    for N in $(pwm_list); do
+        echo 1  > "$CHIP/pwm${N}_enable" 2>/dev/null || true
+        echo 76 > "$CHIP/pwm$N"          2>/dev/null || true
+    done
+    sleep 1
+    for N in $(pwm_list); do
+        echo 2 > "$CHIP/pwm${N}_enable" 2>/dev/null || true
+    done
+    echo "all pwm channels: raw dropped to 30%, then mode=2"
+    show_status
+    ;;
+panic)
+    # Nuclear option: full module reload. Guaranteed to reset chip state
+    # to whatever BIOS programmed. Use if 'auto-all' didn't actually quiet
+    # the fans (some chip/BIOS combos hold the raw value otherwise).
+    echo "PANIC: reloading it87 to reset chip state..."
+    modprobe -r it87 || true
+    sleep 1
+    modprobe it87 force_id=0x8688 ignore_resource_conflict=1
+    sleep 2
+    CHIP_FILE=$(grep -l '^it8688$' /sys/class/hwmon/*/name 2>/dev/null | head -1 || true)
+    [ -z "$CHIP_FILE" ] && { echo "ERROR: chip not visible after reload" >&2; exit 1; }
+    CHIP=$(dirname "$CHIP_FILE")
+    echo "OK, chip back at: $CHIP"
     show_status
     ;;
 find)
-    declare -A ORIG
+    SECS=${2:-4}
+    case "$SECS" in ''|*[!0-9]*) echo "Usage: $0 find [seconds]" >&2; exit 2 ;; esac
+    declare -A ORIG_EN
+    declare -A ORIG_PWM
     cleanup_find() {
         trap - INT TERM EXIT
         echo
-        for N in "${!ORIG[@]}"; do
-            echo "${ORIG[$N]}" > "$CHIP/pwm${N}_enable" 2>/dev/null || true
+        for N in "${!ORIG_EN[@]}"; do
+            echo "${ORIG_PWM[$N]}" > "$CHIP/pwm$N" 2>/dev/null || true
+            echo "${ORIG_EN[$N]}"  > "$CHIP/pwm${N}_enable" 2>/dev/null || true
         done
-        echo "all touched pwm channels restored"
+        echo "all touched pwm channels restored (mode + raw)"
         exit 0
     }
     trap cleanup_find INT TERM EXIT
     for N in $(pwm_list); do
-        ORIG[$N]=$(cat "$CHIP/pwm${N}_enable")
-        echo "=== pwm$N at 90% — listen 4s ==="
+        ORIG_EN[$N]=$(cat "$CHIP/pwm${N}_enable")
+        ORIG_PWM[$N]=$(cat "$CHIP/pwm$N")
+        echo "=== pwm$N at 90% — listen ${SECS}s (was: mode=${ORIG_EN[$N]} raw=${ORIG_PWM[$N]}) ==="
         echo 1   > "$CHIP/pwm${N}_enable"
         echo 229 > "$CHIP/pwm$N"
-        sleep 4
+        sleep "$SECS"
         RPM=$(cat "$CHIP/fan${N}_input" 2>/dev/null || echo -)
         echo "    rpm=$RPM"
-        echo "${ORIG[$N]}" > "$CHIP/pwm${N}_enable"
-        unset 'ORIG[$N]'
+        echo "${ORIG_PWM[$N]}" > "$CHIP/pwm$N"
+        echo "${ORIG_EN[$N]}"  > "$CHIP/pwm${N}_enable"
+        unset 'ORIG_EN[$N]'
+        unset 'ORIG_PWM[$N]'
         sleep 1
     done
     ;;
