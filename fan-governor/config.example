@@ -1,0 +1,18 @@
+{
+  "poll_interval_s": 3,
+  "min_pwm_step": 3,
+  "min_state_seconds": 5,
+  "emergency_temp": 88,
+  "emergency_exit": 82,
+  "gpu_index": 0,
+
+  "groups": [
+    {
+      "name": "gpu",
+      "source": "gpu_max",
+      "targets": ["nvml:0:*"],
+      "min_pwm": 30,
+      "curve": [[40, 30], [55, 45], [70, 65], [80, 90], [85, 100]]
+    }
+  ]
+}

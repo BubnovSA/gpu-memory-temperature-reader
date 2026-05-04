@@ -1,0 +1,21 @@
+[Unit]
+Description=Fan Governor (NVML + hwmon fan controller)
+Documentation=file:///usr/local/share/doc/fan-governor/README.md
+After=multi-user.target nvidia-persistenced.service
+Wants=nvidia-persistenced.service
+
+[Service]
+Type=simple
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/usr/local/bin/fan-governor.py --config /etc/fan-governor/config.json
+Restart=on-failure
+RestartSec=5
+# Exit code 2 means config error — don't hot-loop, make the admin fix it.
+RestartPreventExitStatus=2
+
+# Give the daemon time to return fans to firmware control on shutdown.
+KillSignal=SIGTERM
+TimeoutStopSec=15
+
+[Install]
+WantedBy=multi-user.target
