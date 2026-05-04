@@ -273,23 +273,44 @@ class GpuTempSource:
             self.handle, pynvml.NVML_TEMPERATURE_GPU)
 
     def vram(self) -> Optional[int]:
-        FieldValue = pynvml.c_nvmlFieldValue_t
-        arr = (FieldValue * 1)()
-        arr[0].fieldId = NVML_FI_DEV_MEMORY_TEMP
+        # pynvml >=12.x changed API: nvmlDeviceGetFieldValues(handle, [fieldId])
+        # Old API was: nvmlDeviceGetFieldValues(handle, count, ctypes_array)
+        # Try new API first; fall back to old on TypeError.
         try:
-            pynvml.nvmlDeviceGetFieldValues(self.handle, 1, arr)
+            result = pynvml.nvmlDeviceGetFieldValues(
+                self.handle, [NVML_FI_DEV_MEMORY_TEMP])
+            if not result or result[0].nvmlReturn != 0:
+                if not self._vram_warned:
+                    status = result[0].nvmlReturn if result else -1
+                    logging.warning("VRAM temp field returned NVML status %d", status)
+                    self._vram_warned = True
+                return None
+            val = result[0].value
+            return int(val.siVal) if hasattr(val, 'siVal') else int(val)
+        except TypeError:
+            # Old pynvml ctypes API.
+            try:
+                FieldValue = pynvml.c_nvmlFieldValue_t
+                arr = (FieldValue * 1)()
+                arr[0].fieldId = NVML_FI_DEV_MEMORY_TEMP
+                pynvml.nvmlDeviceGetFieldValues(self.handle, 1, arr)
+                if arr[0].nvmlReturn != 0:
+                    if not self._vram_warned:
+                        logging.warning("VRAM temp field unsupported (NVML status %d)",
+                                        arr[0].nvmlReturn)
+                        self._vram_warned = True
+                    return None
+                return int(arr[0].value.siVal)
+            except (pynvml.NVMLError, AttributeError, Exception) as e:
+                if not self._vram_warned:
+                    logging.warning("VRAM temp (old API) failed: %s", e)
+                    self._vram_warned = True
+                return None
         except pynvml.NVMLError as e:
             if not self._vram_warned:
                 logging.warning("VRAM temp query failed: %s", e)
                 self._vram_warned = True
             return None
-        if arr[0].nvmlReturn != 0:
-            if not self._vram_warned:
-                logging.warning(
-                    "VRAM temp field unsupported (NVML status %d)", arr[0].nvmlReturn)
-                self._vram_warned = True
-            return None
-        return int(arr[0].value.siVal)
 
     def read(self, source: str) -> Optional[float]:
         if source == "gpu_core":
