@@ -67,6 +67,7 @@ class Config:
     emergency_exit: int
     gpu_index: int
     groups: Tuple[Group, ...]
+    gddr6_log: Optional[str] = None   # path to gddr6 CSV log for VRAM temp
 
     @classmethod
     def load(cls, path: str) -> "Config":
@@ -92,6 +93,7 @@ class Config:
             emergency_exit    = int(data.get("emergency_exit", 82)),
             gpu_index         = int(data.get("gpu_index", 0)),
             groups            = tuple(groups),
+            gddr6_log         = data.get("gddr6_log") or None,
         )
 
     def validate(self) -> None:
@@ -264,9 +266,15 @@ def resolve_targets(group: Group, gpu_handle, gpu_index: int) -> List[Target]:
 # ---------------- Temperature source ----------------
 
 class GpuTempSource:
-    def __init__(self, handle):
+    # gddr6 CSV column index for vram_temp_c (0-based: ts,idx,name,vram,core,...)
+    _GDDR6_VRAM_COL = 3
+    _GDDR6_MAX_AGE_S = 5.0   # log older than this → gddr6 not running
+
+    def __init__(self, handle, gddr6_log: Optional[str] = None):
         self.handle = handle
+        self.gddr6_log = gddr6_log
         self._vram_warned = False
+        self._log_warned = False
 
     def core(self) -> int:
         return pynvml.nvmlDeviceGetTemperature(
@@ -286,7 +294,16 @@ class GpuTempSource:
                     self._vram_warned = True
                 return None
             val = result[0].value
-            return int(val.siVal) if hasattr(val, 'siVal') else int(val)
+            temp = int(val.siVal) if hasattr(val, 'siVal') else int(val)
+            if temp == 0:
+                # NVML returns 0 when field is unsupported on this driver/card.
+                if not self._vram_warned:
+                    logging.warning(
+                        "VRAM temp reads 0 — field unsupported on this driver; "
+                        "gpu_max will use gpu_core only.")
+                    self._vram_warned = True
+                return None
+            return temp
         except TypeError:
             # Old pynvml ctypes API.
             try:
@@ -312,15 +329,47 @@ class GpuTempSource:
                 self._vram_warned = True
             return None
 
+    def _vram_from_log(self) -> Optional[int]:
+        """Read VRAM temp from the last data line of a gddr6 CSV log."""
+        path = self.gddr6_log
+        try:
+            age = time.time() - os.path.getmtime(path)
+            if age > self._GDDR6_MAX_AGE_S:
+                if not self._log_warned:
+                    logging.warning(
+                        "gddr6 log %s is stale (%.0fs) — "
+                        "run 'sudo gddr6 -l %s' to enable VRAM temp", path, age, path)
+                    self._log_warned = True
+                return None
+            with open(path, 'r') as f:
+                lines = [l.strip() for l in f
+                         if l.strip() and not l.startswith('#')]
+            if not lines:
+                return None
+            parts = lines[-1].split(',')
+            val = int(parts[self._GDDR6_VRAM_COL])
+            if val <= 0:
+                return None
+            if self._log_warned:
+                logging.info("gddr6 log %s is live again — VRAM temp available", path)
+                self._log_warned = False
+            return val
+        except (OSError, ValueError, IndexError):
+            return None
+
     def read(self, source: str) -> Optional[float]:
         if source == "gpu_core":
             return float(self.core())
         if source == "gpu_vram":
             v = self.vram()
+            if v is None and self.gddr6_log:
+                v = self._vram_from_log()
             return None if v is None else float(v)
         if source == "gpu_max":
             c = self.core()
             v = self.vram()
+            if v is None and self.gddr6_log:
+                v = self._vram_from_log()
             return float(max(c, v)) if v is not None else float(c)
         return None
 
@@ -361,7 +410,9 @@ class FanGovernor:
         logging.info(
             "NVML init OK, managing GPU%d '%s' with %d fans",
             self.cfg.gpu_index, gpu_name, fan_count)
-        self.temp_source = GpuTempSource(self.handle)
+        self.temp_source = GpuTempSource(self.handle, gddr6_log=self.cfg.gddr6_log)
+        if self.cfg.gddr6_log:
+            logging.info("VRAM source: gddr6 log at %s", self.cfg.gddr6_log)
 
         for g in self.cfg.groups:
             targets = resolve_targets(g, self.handle, self.cfg.gpu_index)
