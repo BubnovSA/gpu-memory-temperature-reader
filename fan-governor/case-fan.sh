@@ -18,7 +18,7 @@
 #   sudo ./case-fan.sh                       → status of all pwm/fan channels
 #   sudo ./case-fan.sh find [seconds]        → ramp each pwm to 90% one-by-one (default 4s)
 #   sudo ./case-fan.sh set <N> <PCT>         → set pwmN to PCT%
-#   sudo ./case-fan.sh auto <N>              → return pwmN to auto (mode 2)
+#   sudo ./case-fan.sh auto <N>              → set pwmN to safe quiet (mode 1, 30%)
 #   sudo ./case-fan.sh auto-all              → drop all to 30% + mode=auto (recommended quiet)
 #   sudo ./case-fan.sh panic                 → reload it87 module (nuclear: 100% guaranteed reset)
 #   sudo ./case-fan.sh watch                 → live status, refresh every 1s
@@ -72,8 +72,10 @@ auto)
     N=${2:-}
     [ -n "$N" ] || { echo "Usage: $0 auto <pwmN>" >&2; exit 2; }
     [ -e "$CHIP/pwm${N}_enable" ] || { echo "pwm$N does not exist" >&2; exit 2; }
-    echo 2 > "$CHIP/pwm${N}_enable"
-    echo "pwm$N -> auto"
+    # mode=1 + 30% raw (see auto-all comments for why mode 2 doesn't work).
+    echo 1  > "$CHIP/pwm${N}_enable"
+    echo 76 > "$CHIP/pwm$N"
+    echo "pwm$N -> manual mode at 30%"
     show_status
     ;;
 auto-all)
