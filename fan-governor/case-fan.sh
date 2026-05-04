@@ -77,25 +77,24 @@ auto)
     show_status
     ;;
 auto-all)
-    # Drop pwm raw to a safe low first, then switch to mode 2 (auto).
-    # On IT8688E mode 2 doesn't always override the raw register immediately,
-    # so dropping raw to 30% first guarantees fans actually slow down.
+    # Force all channels to manual mode (1) at 30% raw.
+    # On IT8688E mode 2 ("auto") relies on chip-internal Smart Guardian
+    # registers that only BIOS programs at COLD boot — once we've touched
+    # the chip via Linux, mode 2 sticks at last-written raw. Manual mode
+    # bypasses that entirely and is guaranteed quiet.
+    # To restore BIOS-managed auto curve: full poweroff (not reboot).
     for N in $(pwm_list); do
         echo 1  > "$CHIP/pwm${N}_enable" 2>/dev/null || true
         echo 76 > "$CHIP/pwm$N"          2>/dev/null || true
     done
-    sleep 1
-    for N in $(pwm_list); do
-        echo 2 > "$CHIP/pwm${N}_enable" 2>/dev/null || true
-    done
-    echo "all pwm channels: raw dropped to 30%, then mode=2"
+    echo "all pwm channels: forced to manual mode (1) at 30%"
     show_status
     ;;
 panic)
-    # Nuclear option: full module reload. Guaranteed to reset chip state
-    # to whatever BIOS programmed. Use if 'auto-all' didn't actually quiet
-    # the fans (some chip/BIOS combos hold the raw value otherwise).
-    echo "PANIC: reloading it87 to reset chip state..."
+    # Reload module + force manual 30% on all channels.
+    # Module reload alone doesn't reset the chip's pwm register on some
+    # IT8688E configs, so we explicitly force manual+low after reload.
+    echo "PANIC: reloading it87 + forcing manual 30%..."
     modprobe -r it87 || true
     sleep 1
     modprobe it87 force_id=0x8688 ignore_resource_conflict=1
@@ -103,7 +102,11 @@ panic)
     CHIP_FILE=$(grep -l '^it8688$' /sys/class/hwmon/*/name 2>/dev/null | head -1 || true)
     [ -z "$CHIP_FILE" ] && { echo "ERROR: chip not visible after reload" >&2; exit 1; }
     CHIP=$(dirname "$CHIP_FILE")
-    echo "OK, chip back at: $CHIP"
+    for N in $(pwm_list); do
+        echo 1  > "$CHIP/pwm${N}_enable" 2>/dev/null || true
+        echo 76 > "$CHIP/pwm$N"          2>/dev/null || true
+    done
+    echo "OK, chip at: $CHIP, all forced to manual 30%"
     show_status
     ;;
 find)
