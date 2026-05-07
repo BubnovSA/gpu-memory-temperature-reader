@@ -54,6 +54,11 @@ Watch this live:
 journalctl -u gpu-governor -f
 ```
 
+Power cap in action — RTX 3090 under sustained 100% utilization, drawing
+~257 W against a 260 W cap (`nvtop` view, governor in `COMPUTE` state):
+
+![gpu-governor power cap holding 257/260 W under load](../assets/limit-use-power-gpu.png)
+
 ## Is this "undervolting"?
 
 Not in the MSI Afterburner curve-editor sense. The governor locks the clock

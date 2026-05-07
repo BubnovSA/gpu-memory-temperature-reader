@@ -76,6 +76,10 @@ GPU0 RTX 3090              Gclk 1770MHz  Mclk  9751MHz  util  92%/ 68%
   VRAM   cur  72°C  min  58  max  78
 ```
 
+Real output on an RTX 3090 under load:
+
+![gddr6 CLI output](../assets/monitor-data.png)
+
 - First line: GPU name + (if NVML loaded) core/memory clock and GPU/memory
   utilization.
 - **Core** row: current temperature from NVML + cumulative min/max

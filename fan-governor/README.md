@@ -237,6 +237,11 @@ In another, generate sustained GPU load. Within a few ticks:
 group 'gpu' pwm 30% -> 55%
 ```
 
+Real `journalctl` excerpt with two configured groups (`gpu` and `case`)
+both tracking GPU temperature:
+
+![fan-governor pwm transitions for gpu and case groups](../assets/fan-speed.png)
+
 Cross-check externally:
 
 ```sh
