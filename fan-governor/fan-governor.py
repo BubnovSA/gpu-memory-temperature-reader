@@ -198,7 +198,13 @@ class HwmonPwm(Target):
                           self.name, raw, percent, e)
 
     def restore(self) -> None:
-        # Prefer the original mode we snapshotted; fall back to "2" (auto on it87/nct67xx).
+        # Write a safe low raw value first. On IT8688E, mode 2 ("auto") does not
+        # override the raw PWM register, so without this the fan stays at whatever
+        # high speed was last written during operation.
+        try:
+            self.pwm_path.write_text("76")  # 30%
+        except OSError:
+            pass
         target = self._original_enable if self._original_enable is not None else "2"
         try:
             self.enable_path.write_text(target)
