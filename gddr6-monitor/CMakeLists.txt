@@ -1,7 +1,7 @@
-# ./app/CMakeLists.txt
+# ./gddr6-monitor/CMakeLists.txt
 cmake_minimum_required(VERSION 3.10)
 
-project(gddr6_app)
+project(gddr6_monitor)
 set(APP_SOURCES
     src/app.c
     src/nvml_probe.c

@@ -21,13 +21,13 @@ sudo apt install libpci-dev cmake build-essential -y
 ## Install
 
 ```sh
-cd /path/to/repo
-./build_install.sh
-# answer "y" at the prompt to install into /usr/local
+cd gddr6-monitor
+sh install.sh
 ```
 
-This produces `build/bin/gddr6` and, on install, places `gddr6` in
-`/usr/local/bin/` and `libgddr6.a` in `/usr/local/lib/`.
+The installer runs cmake from the repo root, builds `libgddr6.a` and the
+`gddr6` binary into `<repo>/build/`, then `sudo cmake --install`s both into
+`/usr/local/`.
 
 `gddr6` always needs root (opens `/dev/mem`):
 
@@ -39,9 +39,9 @@ sudo gddr6
 
 ```sh
 cd /path/to/repo
-git pull                       # or apply local edits
-rm -rf build                   # clean previous artifacts
-./build_install.sh             # answer "y" to overwrite the /usr/local installs
+git pull                              # or apply local edits
+rm -rf build                          # clean previous artifacts
+cd gddr6-monitor && sh install.sh
 ```
 
 No caching outside `build/` — a fresh rebuild is always safe.
@@ -51,7 +51,7 @@ No caching outside `build/` — a fresh rebuild is always safe.
 ```sh
 sudo rm /usr/local/bin/gddr6
 sudo rm /usr/local/lib/libgddr6.a
-rm -rf build                   # optional: also drop local build artifacts
+rm -rf build                          # optional: also drop local build artifacts
 ```
 
 ## Usage

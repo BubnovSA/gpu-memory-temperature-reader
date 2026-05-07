@@ -397,6 +397,6 @@ Power capping still applies. This is expected, not a failure.
   template unit is not included yet.
 - **No process awareness** — the governor doesn't know which CUDA client
   is running.
-- **No VRAM hotspot tracking** — use the sibling [`gddr6`](../app/README.md)
+- **No VRAM hotspot tracking** — use the sibling [`gddr6`](../gddr6-monitor/README.md)
   tool in this repo for that.
 - **Not a replacement for `nvidia-pstated`** or other V/F curve editors.

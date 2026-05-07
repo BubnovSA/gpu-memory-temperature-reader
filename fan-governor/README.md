@@ -6,7 +6,7 @@ On shutdown, all controlled fans are returned to firmware-default
 control.
 
 Sibling to [`gpu-governor`](../gpu-governor/) (clocks/power) and
-[`gddr6`](../app/) (real-time temperature monitor).
+[`gddr6`](../gddr6-monitor/) (real-time temperature monitor).
 
 ## TL;DR
 

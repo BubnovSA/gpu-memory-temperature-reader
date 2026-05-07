@@ -6,7 +6,7 @@ project(gddr6_project)
 set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -O3 -Wall")
 
 add_subdirectory(lib)
-add_subdirectory(app)
+add_subdirectory(gddr6-monitor)
 
 install(TARGETS gddr6
     RUNTIME DESTINATION ${CMAKE_INSTALL_PREFIX}/bin
