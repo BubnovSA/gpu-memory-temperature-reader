@@ -20,12 +20,6 @@ struct device
     void *mapped_addr;
     uint64_t phys_addr;
     uint64_t base_offset;
-
-    /* statistics */
-    uint32_t temp_min;
-    uint32_t temp_max;
-    uint64_t temp_sum;
-    uint64_t temp_count;
 };
 
 struct gddr6_ctx {

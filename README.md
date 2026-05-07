@@ -1,15 +1,17 @@
 # NVIDIA GPU Toolkit for Linux
 
-Two independent utilities for monitoring and managing NVIDIA GPUs on a Linux
-workstation or single-node AI machine:
+Three independent utilities for monitoring and managing NVIDIA GPUs on a
+Linux workstation or single-node AI machine:
 
-| Utility                                   | What it does                                                                                                                                  | Docs                                     |
-|-------------------------------------------|-----------------------------------------------------------------------------------------------------------------------------------------------|------------------------------------------|
-| [`gddr6`](app/README.md)                  | Real-time VRAM temperature readout + GPU/memory clocks, GPU/memory utilization, CSV logging.                                                  | [app/README.md](app/README.md)           |
-| [`gpu-governor`](gpu-governor/README.md)  | `systemd`-managed daemon that caps GPU power and locks core-clock ceiling under load, backs off on overheat, restores defaults on shutdown.   | [gpu-governor/README.md](gpu-governor/README.md) |
+| Utility                                    | What it does                                                                                                                                | Docs                                              |
+|--------------------------------------------|---------------------------------------------------------------------------------------------------------------------------------------------|---------------------------------------------------|
+| [`gddr6`](app/README.md)                   | Real-time VRAM temperature readout + GPU/memory clocks, GPU/memory utilization, CSV logging.                                                | [app/README.md](app/README.md)                    |
+| [`gpu-governor`](gpu-governor/README.md)   | `systemd`-managed daemon that caps GPU power and locks core-clock ceiling under load, backs off on overheat, restores defaults on shutdown. | [gpu-governor/README.md](gpu-governor/README.md)  |
+| [`fan-governor`](fan-governor/README.md)   | `systemd`-managed daemon driving GPU fans (NVML) and motherboard PWM (hwmon) from per-group temperature curves; restores firmware control on shutdown. | [fan-governor/README.md](fan-governor/README.md)  |
 
 They are complementary and independent. `gddr6` observes; `gpu-governor`
-controls. You can run both at the same time without conflict.
+caps power and clocks; `fan-governor` drives fans. All three can run
+together without conflict.
 
 ## Supported GPUs
 
@@ -34,9 +36,16 @@ Works with any NVIDIA GPU that NVML supports (Kepler+). Clock locking
 (`nvmlDeviceSetGpuLockedClocks`) requires Turing (RTX 20xx) or newer; older
 cards fall back to power-cap-only mode automatically.
 
+### `fan-governor` (fan control)
+
+Requires NVIDIA driver ≥ 525 (`nvmlDeviceSetFanSpeed_v2`); verified on
+580.x. Motherboard PWM control is optional and depends on a working
+hwmon driver for your super-I/O chip (e.g. out-of-tree `it87` for
+IT8688E on Gigabyte boards).
+
 ## Shared system prerequisites
 
-Both utilities need privileged access to the GPU. The following apply
+All three utilities need privileged access to the GPU. The following apply
 repo-wide:
 
 ### Secure Boot off
@@ -65,15 +74,16 @@ and only apply this if the mapping fails.
 
 See the sub-README for each utility:
 
-- `gddr6`: build deps, CLI flags, CSV/JSON output, Telegram setup — [app/README.md](app/README.md)
+- `gddr6`: build deps, CLI flags, CSV log format — [app/README.md](app/README.md)
 - `gpu-governor`: Python deps, systemd unit, config reference, state machine — [gpu-governor/README.md](gpu-governor/README.md)
+- `fan-governor`: fan curves, hwmon/NVML targets, config reference — [fan-governor/README.md](fan-governor/README.md)
 
 ## Repository layout
 
 ```
 lib/                        # gddr6 static library (libpci + /dev/mem mmap)
 app/                        # gddr6 CLI (C)
-  src/                        app.c + sparkline/logger/nvml/telegram modules
+  src/                        app.c + logger.c + nvml_probe.c
   README.md                   gddr6 usage + testing
 gpu-governor/               # gpu-governor daemon (Python)
   gpu-governor.py             daemon entry point
@@ -81,15 +91,21 @@ gpu-governor/               # gpu-governor daemon (Python)
   config.example              reference config
   install.sh                  installer
   README.md                   governor usage + testing
-CMakeLists.txt              # top-level build entry
+fan-governor/               # fan-governor daemon (Python)
+  fan-governor.py             daemon entry point
+  fan-governor.service        systemd unit
+  config.example              reference config (JSON)
+  install.sh                  installer
+  README.md                   governor usage + testing
+CMakeLists.txt              # top-level build entry (gddr6 only)
 build_install.sh            # wrapper: cmake → build → optional install
 ```
 
 ## Testing strategy
 
-There is no automated CI — both tools are tightly coupled to real hardware
-and privileged kernel/driver APIs. Testing is manual, performed on the
-target Linux machine, and scoped per utility.
+There is no automated CI — all three tools are tightly coupled to real
+hardware and privileged kernel/driver APIs. Testing is manual, performed on
+the target Linux machine, and scoped per utility.
 
 Each sub-README has a `## Testing` section with numbered, copy-pasteable
 commands and expected output. The recommended workflow after changes:

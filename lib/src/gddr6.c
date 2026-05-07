@@ -97,11 +97,6 @@ int gddr6_detect_compatible_gpus(void)
                   ctx.devices[ctx.num_devices].dev  = pci_dev->dev;
                   ctx.devices[ctx.num_devices].func = pci_dev->func;
 
-                  ctx.devices[ctx.num_devices].temp_min   = UINT32_MAX;
-                  ctx.devices[ctx.num_devices].temp_max   = 0;
-                  ctx.devices[ctx.num_devices].temp_sum   = 0;
-                  ctx.devices[ctx.num_devices].temp_count = 0;
-
                   ctx.num_devices++;
               }
           }

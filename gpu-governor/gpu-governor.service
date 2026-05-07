@@ -1,6 +1,5 @@
 [Unit]
 Description=GPU Governor (NVML power/clock manager)
-Documentation=file:///usr/local/share/doc/gpu-governor/README.md
 After=multi-user.target nvidia-persistenced.service
 Wants=nvidia-persistenced.service
 

@@ -1,6 +1,5 @@
 [Unit]
 Description=Fan Governor (NVML + hwmon fan controller)
-Documentation=file:///usr/local/share/doc/fan-governor/README.md
 After=multi-user.target nvidia-persistenced.service
 Wants=nvidia-persistenced.service
 
