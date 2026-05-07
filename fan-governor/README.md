@@ -297,6 +297,21 @@ journalctl -u fan-governor | tail -3
   `nvidia-smi --query-gpu=fan.speed --format=csv`, and for hwmon
   channels `echo 2 | sudo tee /sys/class/hwmon/<chip>/pwmN_enable`.
 
+## Diagnostic tools
+
+[`tools/gpu-fan.sh`](tools/gpu-fan.sh) and [`tools/case-fan.sh`](tools/case-fan.sh)
+are one-shot helpers for hardware bring-up, separate from the daemon.
+They are not installed and are intended for manual troubleshooting:
+
+| Script             | Backend          | Use case                                                                            |
+|--------------------|------------------|-------------------------------------------------------------------------------------|
+| `gpu-fan.sh`       | NVML             | Quickly set/reset GPU fans by percent, ramp 30→60→90→100% to identify noise levels. |
+| `case-fan.sh`      | hwmon (`it87`)   | Map silkscreen-labeled headers to `pwmN`, set/restore individual channels, panic-reset the chip. |
+
+Stop the daemon (`sudo systemctl stop fan-governor`) before using these;
+otherwise the daemon will overwrite your manual changes on its next tick.
+Each script prints its own usage when invoked without arguments.
+
 ## Scope and non-goals
 
 - **Single GPU.** Multi-GPU = multiple service instances.
