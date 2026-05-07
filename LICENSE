@@ -1,0 +1,36 @@
+MIT License
+
+Copyright (c) 2026 Sergey Bubnov
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+---
+
+Note on upstream attribution
+============================
+
+The VRAM temperature readout technique used by `gddr6-monitor/` and the
+PCI device-id → MMIO-offset table in `lib/src/gddr6.c` originate from
+https://github.com/olealgoritme/gddr6, which at the time of forking had
+no explicit license file. The technique (mmap of /dev/mem at a
+hardware-specific offset, decoded as a 12-bit field) is treated here as
+a publicly disclosed reverse-engineering result, not as a creative work
+under copyright. The wrapping C code, build system, monitor application,
+governors, and overall toolkit structure in this repository are original
+work and licensed under the MIT terms above.

@@ -1,5 +1,7 @@
 # NVIDIA GPU Toolkit for Linux
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
 Three independent utilities for monitoring and managing NVIDIA GPUs on a
 Linux workstation or single-node AI machine:
 
@@ -114,9 +116,26 @@ commands and expected output. The recommended workflow after changes:
 2. Run through the *Testing* section top to bottom.
 3. Only commit after every relevant check passes.
 
+## License
+
+Licensed under the [MIT License](LICENSE) — short, permissive, no
+copyleft.
+
+The VRAM-readout technique and the PCI device→MMIO-offset table in
+[lib/src/gddr6.c](lib/src/gddr6.c) originate from
+[olealgoritme/gddr6](https://github.com/olealgoritme/gddr6), which at
+the time of forking had no explicit license file. The technique is
+treated here as a publicly disclosed reverse-engineering result rather
+than a creative work under copyright; the wrapping C code, build
+system, and the rest of the toolkit (governors, monitor app) are
+original work and licensed under MIT. See the [LICENSE](LICENSE) file
+for the full attribution note. If you are the upstream author and
+disagree with this characterization, please open an issue.
+
 ## Credits
 
-VRAM temperature readout technique based on the original work at
-[olealgoritme/gddr6](https://github.com/olealgoritme/gddr6).
+- VRAM-temperature MMIO readout: [olealgoritme/gddr6](https://github.com/olealgoritme/gddr6).
+- `pynvml` Python binding maintained by NVIDIA as `nvidia-ml-py`.
+- `it87` out-of-tree DKMS driver: [frankcrawford/it87](https://github.com/frankcrawford/it87).
 
 ![](https://github.com/olealgoritme/gddr6/blob/master/gddr6_use.gif)

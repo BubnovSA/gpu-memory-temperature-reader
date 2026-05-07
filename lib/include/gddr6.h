@@ -1,4 +1,14 @@
-// gddr6.h
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Sergey Bubnov
+//
+// gddr6.h — public interface of libgddr6 (PCI scan + /dev/mem mmap of
+// the architecture-specific VRAM-temperature MMIO register).
+//
+// VRAM-readout technique and the PCI device→offset table originate from
+// https://github.com/olealgoritme/gddr6 (no explicit license at the
+// time of forking; treated as a publicly disclosed RE result). See the
+// repository LICENSE file for the full attribution note.
+
 #ifndef GDDR6_H
 #define GDDR6_H
 

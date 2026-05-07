@@ -1,4 +1,16 @@
-// gddr6.c
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Sergey Bubnov
+//
+// gddr6.c — libgddr6 implementation.
+//
+// The dev_table below (PCI device IDs paired with architecture-specific
+// MMIO offsets) and the mmap(/dev/mem, …) approach originate from
+// https://github.com/olealgoritme/gddr6, which had no explicit license
+// at the time of forking. Treated here as a publicly disclosed
+// reverse-engineering result. The wrapping C code (PCI scan loop,
+// memory map lifecycle, signal handling, public API surface) is
+// original. See the repository LICENSE for the attribution note.
+
 #define _GNU_SOURCE
 
 #include "gddr6.h"
