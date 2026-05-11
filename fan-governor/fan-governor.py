@@ -155,7 +155,10 @@ class NVMLFan(Target):
 
     def apply(self, percent: int) -> None:
         try:
-            pynvml.nvmlDeviceSetFanSpeed_v2(self.handle, self.fan_index, percent)
+            if percent == 0:
+                pynvml.nvmlDeviceSetDefaultFanSpeed_v2(self.handle, self.fan_index)
+            else:
+                pynvml.nvmlDeviceSetFanSpeed_v2(self.handle, self.fan_index, percent)
         except pynvml.NVMLError as e:
             logging.error("%s: SetFanSpeed_v2(%d) failed: %s", self.name, percent, e)
 
