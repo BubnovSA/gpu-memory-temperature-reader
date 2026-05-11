@@ -134,6 +134,7 @@ Top-level keys (defaults in parentheses):
 | `min_state_seconds` | `5`     | Minimum time between PWM rewrites for an unchanged-ish group.                      |
 | `emergency_temp`    | `88`    | °C. Source temp ≥ this → group forced to 100 %.                                    |
 | `emergency_exit`    | `82`    | °C. Group leaves emergency only when source < this.                                |
+| `zero_rpm_gap_c`    | `5`     | Zero-RPM hysteresis gap in °C. Once fans stop (curve hits 0 %), they stay off until temp rises this many degrees above the curve's zero-point. Prevents rapid start/stop oscillation around the idle threshold. Set to `0` to disable. |
 | `gpu_index`         | `0`     | Which GPU to read temps from (`nvidia-smi -L`).                                    |
 | `groups`            | —       | List of fan groups (see below). At least one required.                             |
 

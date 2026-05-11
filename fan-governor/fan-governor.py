@@ -68,6 +68,7 @@ class Config:
     gpu_index: int
     groups: Tuple[Group, ...]
     gddr6_log: Optional[str] = None   # path to gddr6 CSV log for VRAM temp
+    zero_rpm_gap_c: int = 5           # hysteresis: fans stay off until temp rises this many °C above the curve's zero-point
 
     @classmethod
     def load(cls, path: str) -> "Config":
@@ -94,6 +95,7 @@ class Config:
             gpu_index         = int(data.get("gpu_index", 0)),
             groups            = tuple(groups),
             gddr6_log         = data.get("gddr6_log") or None,
+            zero_rpm_gap_c    = int(data.get("zero_rpm_gap_c", 5)),
         )
 
     def validate(self) -> None:
@@ -101,6 +103,8 @@ class Config:
             raise ValueError("poll_interval_s must be >= 1")
         if self.emergency_exit >= self.emergency_temp:
             raise ValueError("emergency_exit must be < emergency_temp (hysteresis)")
+        if self.zero_rpm_gap_c < 0:
+            raise ValueError("zero_rpm_gap_c must be >= 0")
         if not self.groups:
             raise ValueError("at least one group required")
         seen = set()
@@ -392,6 +396,7 @@ class GroupState:
     last_pwm: Optional[int] = None
     last_apply_t: float = 0.0
     in_emergency: bool = False
+    fans_stopped: bool = False
 
 
 # ---------------- Governor ----------------
@@ -442,8 +447,24 @@ class FanGovernor:
         elif st.in_emergency and temp < self.cfg.emergency_exit:
             st.in_emergency = False
         if st.in_emergency:
+            st.fans_stopped = False
             return 100
-        return max(st.group.min_pwm, interpolate(st.group.curve, temp))
+
+        raw_pwm = max(st.group.min_pwm, interpolate(st.group.curve, temp))
+
+        # Zero-RPM hysteresis: once fans are stopped, hold them off until
+        # temp rises zero_rpm_gap_c degrees above the curve's zero-point.
+        # Only applies when the curve actually has a zero starting point.
+        if self.cfg.zero_rpm_gap_c > 0 and st.group.curve[0][1] == 0:
+            zero_stop_t = st.group.curve[0][0]
+            if st.fans_stopped:
+                if temp < zero_stop_t + self.cfg.zero_rpm_gap_c:
+                    return 0
+                st.fans_stopped = False
+            elif raw_pwm == 0:
+                st.fans_stopped = True
+
+        return raw_pwm
 
     def _apply_group(self, st: GroupState, pwm: int, now: float) -> None:
         # Rate-limit: skip if delta is small AND too soon since last write.

@@ -4,6 +4,7 @@
   "min_state_seconds": 5,
   "emergency_temp": 88,
   "emergency_exit": 82,
+  "zero_rpm_gap_c": 5,
   "gpu_index": 0,
 
   "groups": [
